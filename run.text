@@ -1,0 +1,13 @@
+cd disease_analyzer/
+venv\Scripts\activate
+python -m venv venv
+python manage.py runserver
+
+.\venv\bin\python.exe manage.py runserver
+
+
+NS1 -> Dengue NS1 antigen test, a diagnostic tool for early detection of dengue fever
+
+IgG -> the most common type of antibody in the human body, representing roughly 70-80% of all antibodies
+
+IgM ->  ইমিউনোগ্লোবুলিন এম, শরীরের রোগ প্রতিরোধ ব্যবস্থা দ্বারা উত্পাদিত এক ধরণের অ্যান্টিবডি
