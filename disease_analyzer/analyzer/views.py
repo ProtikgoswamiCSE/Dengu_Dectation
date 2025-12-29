@@ -1,7 +1,7 @@
 from django.shortcuts import render
 from django.http import JsonResponse, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
-from .models import AnalysisResult
+from .models import AnalysisResult, SignsWarning
 import sys
 import os
 import csv
@@ -94,40 +94,33 @@ def analyze_data(request):
     })
 
 def signs_warnings(request):
-    # Get all analysis results from database
-    results = AnalysisResult.objects.all().order_by('-created_at')
-    
-    # Use Warnings_model.pkl to predict warnings for each result
-    results_with_predictions = []
-    warning_count = 0
-    
-    for result in results:
-        # Get prediction from Warnings_model.pkl
-        has_warning, confidence = predict_warning(
-            ns1=result.ns1,
-            igg=result.igg,
-            igm=result.igm
-        )
+    try:
+        # Get all signs warning results from separate database
+        results = SignsWarning.objects.all().order_by('-created_at')
         
-        # Add prediction results to the result object
-        result.warning_prediction = has_warning
-        result.warning_confidence = confidence
+        # Calculate statistics
+        total_count = results.count()
+        warning_count = results.filter(warning_prediction=True).count()
+        safe_count = total_count - warning_count
+        warning_rate = (warning_count / total_count * 100) if total_count > 0 else 0
         
-        results_with_predictions.append(result)
-        
-        if has_warning:
-            warning_count += 1
-    
-    # Calculate additional statistics
-    total_count = results.count()
-    safe_count = total_count - warning_count
-    warning_rate = (warning_count / total_count * 100) if total_count > 0 else 0
+        # Count positive cases
+        positive_count = results.filter(ns1=True).count() + results.filter(igm=True).count() + results.filter(igg=True).count()
+    except Exception as e:
+        # Handle case where table doesn't exist yet (migration not run)
+        # Return empty results
+        results = []
+        total_count = 0
+        warning_count = 0
+        safe_count = 0
+        warning_rate = 0
+        positive_count = 0
     
     # Prepare data for template
     data = {
-        'results': results_with_predictions,
+        'results': results,
         'total_count': total_count,
-        'positive_count': results.filter(ns1=True).count() + results.filter(igm=True).count() + results.filter(igg=True).count(),
+        'positive_count': positive_count,
         'warning_count': warning_count,
         'safe_count': safe_count,
         'warning_rate': round(warning_rate, 1)
@@ -230,8 +223,15 @@ def delete_all_disease_data(request):
 
 def save_signs_warnings_data(request):
     """Export all signs and warnings analysis data to CSV"""
-    # Get all analysis results from database
-    results = AnalysisResult.objects.all().order_by('-created_at')
+    try:
+        # Get all signs warning results from separate database
+        results = SignsWarning.objects.all().order_by('-created_at')
+    except Exception as e:
+        # Handle case where table doesn't exist yet
+        response = HttpResponse(content_type='text/plain')
+        response['Content-Disposition'] = 'attachment; filename="error.txt"'
+        response.write('Error: Database table does not exist. Please run migrations first.')
+        return response
     
     # Create HTTP response with CSV content type
     response = HttpResponse(content_type='text/csv; charset=utf-8')
@@ -247,13 +247,6 @@ def save_signs_warnings_data(request):
     
     # Write data rows
     for result in results:
-        # Get prediction from Warnings_model.pkl
-        has_warning, confidence = predict_warning(
-            ns1=result.ns1,
-            igg=result.igg,
-            igm=result.igm
-        )
-        
         writer.writerow([
             result.id,
             result.name or '-',
@@ -266,9 +259,9 @@ def save_signs_warnings_data(request):
             'Positive' if result.igm else 'Negative',
             'Positive' if result.igg else 'Negative',
             result.created_at.strftime('%Y-%m-%d %H:%M:%S'),
-            'Warning' if has_warning else 'Safe',
-            f'{confidence:.2f}',
-            'Warning' if has_warning else 'Safe'
+            'Warning' if result.warning_prediction else 'Safe',
+            f'{result.warning_confidence:.2f}',
+            'Warning' if result.warning_prediction else 'Safe'
         ])
     
     return response
@@ -277,16 +270,16 @@ def save_signs_warnings_data(request):
 def delete_all_signs_warnings_data(request):
     """
     Delete all signs and warnings analysis data from database.
-    This function ONLY deletes AnalysisResult records (Signs and Warnings page data).
+    This function ONLY deletes SignsWarning records (Signs and Warnings page data).
     It does NOT affect any other data or pages.
     """
     if request.method == 'POST':
         try:
             # Get count before deletion
-            count = AnalysisResult.objects.count()
+            count = SignsWarning.objects.count()
             
-            # Delete all AnalysisResult records (only Signs and Warnings page data)
-            AnalysisResult.objects.all().delete()
+            # Delete all SignsWarning records (only Signs and Warnings page data)
+            SignsWarning.objects.all().delete()
             
             return JsonResponse({
                 'success': True,
@@ -295,11 +288,215 @@ def delete_all_signs_warnings_data(request):
             })
         except Exception as e:
             import traceback
+            error_msg = str(e)
+            # Check if it's a table doesn't exist error
+            if 'no such table' in error_msg.lower() or 'does not exist' in error_msg.lower():
+                return JsonResponse({
+                    'success': False,
+                    'error': 'Database table does not exist. Please run migrations first: python manage.py migrate'
+                })
             return JsonResponse({
                 'success': False,
                 'error': str(e) + '\n' + traceback.format_exc()
             })
     
+    return JsonResponse({
+        'success': False,
+        'error': 'Invalid request method'
+    })
+
+@csrf_exempt
+def analyze_warning(request):
+    """Analyze warning using Warnings_model.pkl and save to SignsWarning database"""
+    if request.method == 'POST':
+        try:
+            # Get form data
+            name = request.POST.get('name', '')
+            gender = request.POST.get('gender', 'Male')
+            age = int(request.POST.get('age', 0))
+            division = request.POST.get('division', 'Dhaka')
+            area = request.POST.get('area', '-')
+            house_type = int(request.POST.get('house_type', 0))
+            ns1 = int(request.POST.get('ns1', 0))
+            igg = int(request.POST.get('igg', 0))
+            igm = int(request.POST.get('igm', 0))
+            
+            # Use ML model to predict warning
+            has_warning, confidence = predict_warning(
+                ns1=bool(ns1),
+                igg=bool(igg),
+                igm=bool(igm)
+            )
+            
+            # Save to SignsWarning database
+            try:
+                warning_result = SignsWarning.objects.create(
+                    name=name,
+                    gender=gender,
+                    age=age,
+                    division=division,
+                    area=area,
+                    house_type=house_type,
+                    ns1=bool(ns1),
+                    igg=bool(igg),
+                    igm=bool(igm),
+                    warning_prediction=has_warning,
+                    warning_confidence=confidence
+                )
+                result_id = warning_result.id
+            except Exception as db_error:
+                error_msg = str(db_error)
+                # Check if it's a table doesn't exist error
+                if 'no such table' in error_msg.lower() or 'does not exist' in error_msg.lower():
+                    return JsonResponse({
+                        'success': False,
+                        'error': 'Database table does not exist. Please run migrations first: python manage.py migrate'
+                    })
+                raise db_error
+            
+            result = {
+                'id': result_id,
+                'ns1': 'Positive' if ns1 else 'Negative',
+                'igg': 'Positive' if igg else 'Negative',
+                'igm': 'Positive' if igm else 'Negative',
+                'warning': has_warning,
+                'warning_text': 'Warning Detected' if has_warning else 'Safe',
+                'confidence': round(confidence * 100, 2)
+            }
+            
+            return JsonResponse({
+                'success': True,
+                'results': result
+            })
+
+        except Exception as e:
+            import traceback
+            return JsonResponse({
+                'success': False,
+                'error': str(e) + '\n' + traceback.format_exc()
+            })
+
+    return JsonResponse({
+        'success': False,
+        'error': 'Invalid request method'
+    })
+
+@csrf_exempt
+def analyze_symptoms_warning(request):
+    """Analyze symptoms from awareness card and save to SignsWarning database"""
+    if request.method == 'POST':
+        try:
+            import json
+            
+            # Get symptoms data (array of 0/1 values)
+            symptoms_data = request.POST.get('symptoms', '[]')
+            if isinstance(symptoms_data, str):
+                symptoms = json.loads(symptoms_data)
+            else:
+                symptoms = symptoms_data
+            
+            # Get optional user info
+            name = request.POST.get('name', '')
+            gender = request.POST.get('gender', 'Male')
+            age = int(request.POST.get('age', 0))
+            division = request.POST.get('division', 'Dhaka')
+            area = request.POST.get('area', '-')
+            house_type = int(request.POST.get('house_type', 0))
+            
+            # Count positive symptoms
+            positive_symptoms = sum(1 for s in symptoms if int(s) > 0)
+            total_symptoms = len(symptoms)
+            
+            # Convert symptoms to test predictions based on symptom count
+            # If many symptoms are positive, treat as potential warning
+            # Map to NS1, IgG, IgM based on symptom severity
+            if positive_symptoms >= 8:
+                # Very high risk - treat as positive for all tests
+                ns1 = 1
+                igg = 1
+                igm = 1
+            elif positive_symptoms >= 5:
+                # High risk - treat as positive for NS1 and IgM
+                ns1 = 1
+                igg = 0
+                igm = 1
+            elif positive_symptoms >= 3:
+                # Medium risk - treat as positive for IgM only
+                ns1 = 0
+                igg = 0
+                igm = 1
+            else:
+                # Low risk - all negative
+                ns1 = 0
+                igg = 0
+                igm = 0
+            
+            # Use ML model to predict warning
+            has_warning, confidence = predict_warning(
+                ns1=bool(ns1),
+                igg=bool(igg),
+                igm=bool(igm)
+            )
+            
+            # Adjust confidence based on symptom count
+            symptom_confidence = min(positive_symptoms / total_symptoms, 1.0) if total_symptoms > 0 else 0.0
+            # Combine model confidence with symptom-based confidence
+            final_confidence = max(confidence, symptom_confidence)
+            
+            # Save to SignsWarning database
+            try:
+                warning_result = SignsWarning.objects.create(
+                    name=name or f'Symptom Analysis - {positive_symptoms} symptoms',
+                    gender=gender,
+                    age=age,
+                    division=division,
+                    area=area,
+                    house_type=house_type,
+                    ns1=bool(ns1),
+                    igg=bool(igg),
+                    igm=bool(igm),
+                    warning_prediction=has_warning,
+                    warning_confidence=final_confidence
+                )
+                result_id = warning_result.id
+            except Exception as db_error:
+                error_msg = str(db_error)
+                # Check if it's a table doesn't exist error
+                if 'no such table' in error_msg.lower() or 'does not exist' in error_msg.lower():
+                    return JsonResponse({
+                        'success': False,
+                        'error': 'Database table does not exist. Please run migrations first: python manage.py migrate'
+                    })
+                raise db_error
+            
+            # Calculate risk level
+            risk_percentage = round((positive_symptoms / total_symptoms * 100) if total_symptoms > 0 else 0)
+            
+            result = {
+                'id': result_id,
+                'positive_symptoms': positive_symptoms,
+                'total_symptoms': total_symptoms,
+                'risk_percentage': risk_percentage,
+                'ns1': 'Positive' if ns1 else 'Negative',
+                'igg': 'Positive' if igg else 'Negative',
+                'igm': 'Positive' if igm else 'Negative',
+                'warning': has_warning,
+                'warning_text': 'Warning Detected' if has_warning else 'Safe',
+                'confidence': round(final_confidence * 100, 2)
+            }
+            
+            return JsonResponse({
+                'success': True,
+                'results': result
+            })
+
+        except Exception as e:
+            import traceback
+            return JsonResponse({
+                'success': False,
+                'error': str(e) + '\n' + traceback.format_exc()
+            })
+
     return JsonResponse({
         'success': False,
         'error': 'Invalid request method'

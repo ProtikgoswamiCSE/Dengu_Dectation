@@ -200,6 +200,22 @@
     </div>
 
     <script>
+        // Get CSRF token from cookie
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+
         function getAnalysisText(ns1, igg, igm) {
             let analysis = [];
             
@@ -383,8 +399,27 @@
                 return;
             }
             
+            // Build save status message
+            let saveStatus = '';
+            if (data.saved) {
+                saveStatus = `
+                    <div style="background: #d4edda; border: 1px solid #c3e6cb; border-radius: 5px; padding: 10px; margin-bottom: 15px; color: #155724;">
+                        <strong>✅ রিপোর্ট ডাটাবেসে সংরক্ষিত হয়েছে</strong><br>
+                        <small>রেকর্ড ID: #${data.recordId || 'N/A'}</small>
+                        ${data.warning ? `<br><small style="color: #ff9800;">⚠️ Warning: ${data.warningText} (Confidence: ${data.confidence}%)</small>` : ''}
+                    </div>
+                `;
+            } else if (data.error) {
+                saveStatus = `
+                    <div style="background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 5px; padding: 10px; margin-bottom: 15px; color: #721c24;">
+                        <strong>⚠️ সতর্কতা:</strong> ${data.error}
+                    </div>
+                `;
+            }
+            
             // Populate modal content
             modalBody.innerHTML = `
+                ${saveStatus}
                 <div class="risk-summary-card" style="border-top: 5px solid ${data.riskColor};">
                     <div class="risk-header">ঝুঁকির মাত্রা</div>
                     <div class="risk-level-text" style="color: ${data.riskColor};">
@@ -405,6 +440,13 @@
                             `<div class="recommendation-item-card">${rec}</div>`
                         ).join('')}
                     </div>
+                </div>
+                
+                <div style="margin-top: 20px; text-align: center;">
+                    <button onclick="window.location.href='{% url 'signs_warnings' %}'; closeWarningModal();" 
+                            style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 12px 24px; border-radius: 6px; font-size: 16px; font-weight: 600; cursor: pointer;">
+                        📊 Signs & Warnings পেজে যান
+                    </button>
                 </div>
             `;
             
@@ -438,8 +480,143 @@
         function attachWarningButtonHandler() {
             const seeWarningBtn = document.getElementById('seeWarningBtn');
             if (seeWarningBtn) {
-                seeWarningBtn.onclick = analyzeSymptoms;
+                seeWarningBtn.onclick = function() {
+                    // Analyze symptoms and save to database
+                    analyzeAndSaveSymptoms();
+                };
             }
+        }
+
+        // Analyze symptoms and save to database
+        function analyzeAndSaveSymptoms() {
+            // Get all symptom dropdowns from the awareness card
+            const symptomSelects = document.querySelectorAll('.info-card .mini-select');
+            const symptoms = [];
+            
+            symptomSelects.forEach(select => {
+                const value = parseInt(select.value) || 0;
+                symptoms.push(value);
+            });
+            
+            // Calculate warning score (count positive symptoms)
+            const positiveCount = symptoms.filter(s => s > 0).length;
+            const totalSymptoms = symptoms.length;
+            
+            // Calculate risk percentage
+            const riskPercentage = Math.round((positiveCount / totalSymptoms) * 100);
+            
+            // Determine risk level
+            let riskText = 'নিম্ন';
+            let riskColor = '#28a745';
+            let recommendations = [];
+            
+            if (positiveCount >= 8) {
+                riskText = 'অত্যন্ত উচ্চ';
+                riskColor = '#dc3545';
+                recommendations = [
+                    'আপনার সাথে সাথে চিকিৎসকের পরামর্শ নিন',
+                    'জরুরি বিভাগে যান',
+                    'ডেঙ্গু পরীক্ষা করুন',
+                    'পর্যাপ্ত পানি পান করুন',
+                    'কোনো বিলম্ব করবেন না'
+                ];
+            } else if (positiveCount >= 5) {
+                riskText = 'উচ্চ';
+                riskColor = '#ff9800';
+                recommendations = [
+                    'দ্রুত চিকিৎসকের পরামর্শ নিন',
+                    'ডেঙ্গু পরীক্ষা করুন',
+                    'পর্যাপ্ত বিশ্রাম নিন',
+                    'পর্যাপ্ত তরল পান করুন',
+                    'জ্বর কমানোর জন্য প্যারাসিটামল নিন'
+                ];
+            } else if (positiveCount >= 3) {
+                riskText = 'মাঝারি';
+                riskColor = '#ffc107';
+                recommendations = [
+                    'চিকিৎসকের পরামর্শ নিন',
+                    'পর্যাপ্ত বিশ্রাম নিন',
+                    'পর্যাপ্ত পানি পান করুন',
+                    'লক্ষণগুলো পর্যবেক্ষণ করুন'
+                ];
+            } else {
+                recommendations = [
+                    'লক্ষণগুলো পর্যবেক্ষণ করুন',
+                    'পর্যাপ্ত বিশ্রাম নিন',
+                    'পর্যাপ্ত পানি পান করুন',
+                    'লক্ষণ বাড়লে চিকিৎসকের পরামর্শ নিন'
+                ];
+            }
+            
+            // Show loading state
+            const btn = document.getElementById('seeWarningBtn');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '⏳ বিশ্লেষণ করা হচ্ছে...';
+            btn.disabled = true;
+            
+            // Prepare form data
+            const formData = new FormData();
+            formData.append('symptoms', JSON.stringify(symptoms));
+            formData.append('csrfmiddlewaretoken', getCookie('csrftoken'));
+            
+            // Send to server to analyze and save
+            fetch('{% url "analyze_symptoms_warning" %}', {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+                
+                if (data.success) {
+                    // Show report in modal with saved status
+                    showWarningReportModal({
+                        positiveCount: data.results.positive_symptoms,
+                        totalSymptoms: data.results.total_symptoms,
+                        riskPercentage: data.results.risk_percentage,
+                        riskText: riskText,
+                        riskColor: riskColor,
+                        recommendations: recommendations,
+                        saved: true,
+                        warning: data.results.warning,
+                        warningText: data.results.warning_text,
+                        confidence: data.results.confidence,
+                        recordId: data.results.id
+                    });
+                } else {
+                    // Show error but still show the modal with analysis
+                    showWarningReportModal({
+                        positiveCount: positiveCount,
+                        totalSymptoms: totalSymptoms,
+                        riskPercentage: riskPercentage,
+                        riskText: riskText,
+                        riskColor: riskColor,
+                        recommendations: recommendations,
+                        saved: false,
+                        error: data.error || 'Database save failed'
+                    });
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+                // Show modal even if save fails
+                showWarningReportModal({
+                    positiveCount: positiveCount,
+                    totalSymptoms: totalSymptoms,
+                    riskPercentage: riskPercentage,
+                    riskText: riskText,
+                    riskColor: riskColor,
+                    recommendations: recommendations,
+                    saved: false,
+                    error: 'Network error. Analysis shown but not saved.'
+                });
+            });
         }
         
         // Initialize warning button handler
