@@ -1,9 +1,12 @@
 from django.shortcuts import render
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from .models import AnalysisResult
 import sys
 import os
+import csv
+from django.db.models import Q
+from datetime import datetime
 
 # Import utils from parent directory (disease_analyzer/utils.py)
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -28,8 +31,9 @@ def analyze_data(request):
     if request.method == 'POST':
         try:
             # Get form data
+            name = request.POST.get('Name', '')
             gender = request.POST.get('gender', 'Male')
-            age = request.POST.get('age', '0')
+            age = int(request.POST.get('age', 0))
             ns1 = int(request.POST.get('ns1', 0))
             igg = int(request.POST.get('igg', 0))
             igm = int(request.POST.get('igm', 0))
@@ -40,7 +44,7 @@ def analyze_data(request):
             # Use ML model to predict dengue
             is_positive = predict_dengue(
                 gender=gender,
-                age=age,
+                age=str(age),
                 ns1=ns1,
                 igg=igg,
                 igm=igm,
@@ -59,8 +63,14 @@ def analyze_data(request):
                 'District': is_positive
             }
             
-            # Save to database
+            # Save to database with all fields
             AnalysisResult.objects.create(
+                name=name,
+                gender=gender,
+                age=age,
+                division=division,
+                area=area,
+                house_type=house_type,
                 ns1=bool(ns1),
                 igm=bool(igm),
                 igg=bool(igg)
@@ -146,3 +156,74 @@ def disease_analyst(request):
     }
     
     return render(request, 'analyzer/disease_analyst.html', data)
+
+def save_disease_data(request):
+    """Export all disease analysis data to CSV"""
+    # Get all analysis results from database
+    results = AnalysisResult.objects.all().order_by('-created_at')
+    
+    # Create HTTP response with CSV content type
+    response = HttpResponse(content_type='text/csv; charset=utf-8')
+    response['Content-Disposition'] = 'attachment; filename="disease_analysis_data_{}.csv"'.format(
+        datetime.now().strftime('%Y%m%d_%H%M%S')
+    )
+    
+    # Create CSV writer
+    writer = csv.writer(response)
+    
+    # Write header row
+    writer.writerow(['ID', 'Name', 'Gender', 'Age', 'Division', 'Area', 'House Type', 'NS1 Test', 'IgM Test', 'IgG Test', 'Analysis Date', 'Risk Level'])
+    
+    # Write data rows
+    for result in results:
+        # Determine risk level (True if any test is positive, False otherwise)
+        risk_level = 'True' if (result.ns1 or result.igm or result.igg) else 'False'
+        
+        writer.writerow([
+            result.id,
+            result.name or '-',
+            result.gender or '-',
+            result.age or 0,
+            result.division or '-',
+            result.area or '-',
+            result.house_type or 0,
+            'Positive' if result.ns1 else 'Negative',
+            'Positive' if result.igm else 'Negative',
+            'Positive' if result.igg else 'Negative',
+            result.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+            risk_level
+        ])
+    
+    return response
+
+@csrf_exempt
+def delete_all_disease_data(request):
+    """
+    Delete all disease analysis data from database.
+    This function ONLY deletes AnalysisResult records (Disease Analyst page data).
+    It does NOT affect any other data or pages.
+    """
+    if request.method == 'POST':
+        try:
+            # Get count before deletion
+            count = AnalysisResult.objects.count()
+            
+            # Delete all AnalysisResult records (only Disease Analyst page data)
+            AnalysisResult.objects.all().delete()
+            
+            return JsonResponse({
+                'success': True,
+                'message': f'Successfully deleted {count} record(s)',
+                'deleted_count': count
+            })
+        except Exception as e:
+            import traceback
+            return JsonResponse({
+                'success': False,
+                'error': str(e) + '\n' + traceback.format_exc()
+            })
+    
+    return JsonResponse({
+        'success': False,
+        'error': 'Invalid request method'
+    })
