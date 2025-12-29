@@ -2,6 +2,20 @@ from django.shortcuts import render
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from .models import AnalysisResult
+import sys
+import os
+
+# Import utils from parent directory (disease_analyzer/utils.py)
+parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+
+try:
+    from utils import predict_dengue
+except ImportError:
+    # Fallback function if import fails
+    def predict_dengue(gender, age, ns1, igg, igm, division, area, house_type):
+        return (int(ns1) + int(igg) + int(igm)) >= 2
 
 def home(request):
     return render(request, 'analyzer/home.html')
@@ -11,15 +25,26 @@ def analyze_data(request):
     if request.method == 'POST':
         try:
             # Get form data
-            gender = request.POST.get('gender', '-')
-            age = request.POST.get('age', '-')
-            ns1 = bool(int(request.POST.get('ns1', 0)))
-            igg = bool(int(request.POST.get('igg', 0)))
-            igm = bool(int(request.POST.get('igm', 0)))
+            gender = request.POST.get('gender', 'Male')
+            age = request.POST.get('age', '0')
+            ns1 = int(request.POST.get('ns1', 0))
+            igg = int(request.POST.get('igg', 0))
+            igm = int(request.POST.get('igm', 0))
+            division = request.POST.get('division', 'Dhaka')
+            area = request.POST.get('Area', '-')
+            house_type = int(request.POST.get('house_type', '0'))
             
-            # Predict District based on the values
-            # If any two tests are positive, predict True
-            is_positive = (int(ns1) + int(igg) + int(igm)) >= 2
+            # Use ML model to predict dengue
+            is_positive = predict_dengue(
+                gender=gender,
+                age=age,
+                ns1=ns1,
+                igg=igg,
+                igm=igm,
+                division=division,
+                area=area,
+                house_type=house_type
+            )
             
             result = {
                 'Gender': gender,
@@ -27,15 +52,15 @@ def analyze_data(request):
                 'NS1': int(ns1),
                 'IgG': int(igg),
                 'IgM': int(igm),
-                'Area': '-',
+                'Area': area,
                 'District': is_positive
             }
             
             # Save to database
             AnalysisResult.objects.create(
-                ns1=ns1,
-                igm=igm,
-                igg=igg
+                ns1=bool(ns1),
+                igm=bool(igm),
+                igg=bool(igg)
             )
 
             return JsonResponse({
@@ -44,9 +69,10 @@ def analyze_data(request):
             })
 
         except Exception as e:
+            import traceback
             return JsonResponse({
                 'success': False,
-                'error': str(e)
+                'error': str(e) + '\n' + traceback.format_exc()
             })
 
     return JsonResponse({
