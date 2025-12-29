@@ -11,11 +11,14 @@ if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
 try:
-    from utils import predict_dengue
+    from utils import predict_dengue, predict_warning
 except ImportError:
     # Fallback function if import fails
     def predict_dengue(gender, age, ns1, igg, igm, division, area, house_type):
         return (int(ns1) + int(igg) + int(igm)) >= 2
+    def predict_warning(ns1, igg, igm):
+        has_warning = bool(ns1) or bool(igm) or bool(igg)
+        return has_warning, 1.0 if has_warning else 0.0
 
 def home(request):
     return render(request, 'analyzer/home.html')
@@ -84,11 +87,40 @@ def signs_warnings(request):
     # Get all analysis results from database
     results = AnalysisResult.objects.all().order_by('-created_at')
     
+    # Use Warnings_model.pkl to predict warnings for each result
+    results_with_predictions = []
+    warning_count = 0
+    
+    for result in results:
+        # Get prediction from Warnings_model.pkl
+        has_warning, confidence = predict_warning(
+            ns1=result.ns1,
+            igg=result.igg,
+            igm=result.igm
+        )
+        
+        # Add prediction results to the result object
+        result.warning_prediction = has_warning
+        result.warning_confidence = confidence
+        
+        results_with_predictions.append(result)
+        
+        if has_warning:
+            warning_count += 1
+    
+    # Calculate additional statistics
+    total_count = results.count()
+    safe_count = total_count - warning_count
+    warning_rate = (warning_count / total_count * 100) if total_count > 0 else 0
+    
     # Prepare data for template
     data = {
-        'results': results,
-        'total_count': results.count(),
-        'positive_count': results.filter(ns1=True).count() + results.filter(igm=True).count() + results.filter(igg=True).count()
+        'results': results_with_predictions,
+        'total_count': total_count,
+        'positive_count': results.filter(ns1=True).count() + results.filter(igm=True).count() + results.filter(igg=True).count(),
+        'warning_count': warning_count,
+        'safe_count': safe_count,
+        'warning_rate': round(warning_rate, 1)
     }
     
     return render(request, 'analyzer/signs_warnings.html', data)

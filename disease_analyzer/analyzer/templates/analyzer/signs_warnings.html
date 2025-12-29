@@ -13,19 +13,83 @@
         </div>
 
         <div class="data-section">
-            <div class="stats-box">
-                <div class="stat-item">
-                    <h3>Total Records</h3>
-                    <p class="stat-number">{{ total_count }}</p>
-                </div>
-                <div class="stat-item">
-                    <h3>Positive Cases</h3>
-                    <p class="stat-number">{{ positive_count }}</p>
-                </div>
-            </div>
+            <div class="main-layout">
+                <div class="left-sidebar">
+                    <div class="stats-box">
+                        <div class="stat-item">
+                            <h3>Total Records</h3>
+                            <p class="stat-number">{{ total_count }}</p>
+                        </div>
+                        <div class="stat-item">
+                            <h3>Positive Cases</h3>
+                            <p class="stat-number">{{ positive_count }}</p>
+                        </div>
+                        <div class="stat-item stat-warning">
+                            <h3>Model Warnings</h3>
+                            <p class="stat-number">{{ warning_count }}</p>
+                        </div>
+                    </div>
 
-            <div class="table-container">
-                <h2>Analysis Results</h2>
+                    <div class="info-card">
+                        <h3 class="info-card-header" onclick="toggleInfoBox()">
+                            📊 Quick Info
+                            <span class="toggle-icon" id="toggleIcon">▼</span>
+                        </h3>
+                        <div class="info-content" id="infoContent">
+                            <div class="info-item">
+                                <span class="info-label">Safe Cases:</span>
+                                <span class="info-value">{{ safe_count }}</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Warning Rate:</span>
+                                <span class="info-value">{{ warning_rate }}%</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Model Used:</span>
+                                <span class="info-value">Warnings_model.pkl</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Last Updated:</span>
+                                <span class="info-value">Now</span>
+                            </div>
+                        </div>
+                        <div class="info-box-expanded" id="expandedBox" style="display: none;">
+                            <div class="expanded-content">
+                                <h4>📈 Additional Statistics</h4>
+                                <div class="info-item">
+                                    <span class="info-label">Total Records:</span>
+                                    <span class="info-value">{{ total_count }}</span>
+                                </div>
+                                <div class="info-item">
+                                    <span class="info-label">Positive Cases:</span>
+                                    <span class="info-value">{{ positive_count }}</span>
+                                </div>
+                                <div class="info-item">
+                                    <span class="info-label">Warning Cases:</span>
+                                    <span class="info-value">{{ warning_count }}</span>
+                                </div>
+                                <div class="info-item">
+                                    <span class="info-label">Safe Cases:</span>
+                                    <span class="info-value">{{ safe_count }}</span>
+                                </div>
+                                <div class="info-item">
+                                    <span class="info-label">Positive Rate:</span>
+                                    <span class="info-value" id="positiveRate">
+                                        {% if total_count > 0 %}
+                                            {% widthratio positive_count total_count 100 %}%
+                                        {% else %}
+                                            0%
+                                        {% endif %}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="right-content">
+                    <div class="table-container">
+                <h2>Analysis Results (Using Warnings_model.pkl)</h2>
                 <table class="data-table">
                     <thead>
                         <tr>
@@ -34,12 +98,22 @@
                             <th>IgM</th>
                             <th>IgG</th>
                             <th>Date</th>
+                            <th>Model Prediction</th>
+                            <th>Confidence</th>
                             <th>Status</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for result in results %}
-                        <tr>
+                        <tr class="{% if result.warning_prediction %}warning-row clickable-row{% endif %}" 
+                            {% if result.warning_prediction %}data-result-id="{{ result.id }}"
+                            data-ns1="{% if result.ns1 %}1{% else %}0{% endif %}"
+                            data-igm="{% if result.igm %}1{% else %}0{% endif %}"
+                            data-igg="{% if result.igg %}1{% else %}0{% endif %}"
+                            data-date="{{ result.created_at|date:'Y-m-d H:i' }}"
+                            data-warning="{% if result.warning_prediction %}1{% else %}0{% endif %}"
+                            data-confidence="{{ result.warning_confidence|floatformat:2 }}"
+                            onclick="showWarningDetails(this)"{% endif %}>
                             <td>{{ result.id }}</td>
                             <td class="{% if result.ns1 %}positive{% else %}negative{% endif %}">
                                 {{ result.ns1|yesno:"Positive,Negative" }}
@@ -51,17 +125,31 @@
                                 {{ result.igg|yesno:"Positive,Negative" }}
                             </td>
                             <td>{{ result.created_at|date:"Y-m-d H:i" }}</td>
-                            <td class="{% if result.ns1 or result.igm or result.igg %}warning{% else %}safe{% endif %}">
-                                {% if result.ns1 or result.igm or result.igg %}Warning{% else %}Safe{% endif %}
+                            <td class="{% if result.warning_prediction %}warning{% else %}safe{% endif %}">
+                                {% if result.warning_prediction %}
+                                    <span class="warning-badge">⚠️ Warning</span>
+                                {% else %}
+                                    <span class="safe-badge">✓ Safe</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <span class="confidence-badge" style="background-color: {% if result.warning_prediction %}#ff9800{% else %}#28a745{% endif %};">
+                                    {{ result.warning_confidence|floatformat:2 }}
+                                </span>
+                            </td>
+                            <td class="{% if result.warning_prediction %}warning{% else %}safe{% endif %}">
+                                {% if result.warning_prediction %}Warning{% else %}Safe{% endif %}
                             </td>
                         </tr>
                         {% empty %}
                         <tr>
-                            <td colspan="6" class="no-data">No data available</td>
+                            <td colspan="8" class="no-data">No data available</td>
                         </tr>
                         {% endfor %}
                     </tbody>
                 </table>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -118,19 +206,140 @@
             box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
         }
 
+        .main-layout {
+            display: flex;
+            gap: 30px;
+            align-items: flex-start;
+        }
+
+        .left-sidebar {
+            flex: 0 0 350px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .right-content {
+            flex: 1;
+        }
+
         .stats-box {
             display: flex;
-            gap: 20px;
-            margin-bottom: 30px;
+            flex-direction: column;
+            gap: 15px;
         }
 
         .stat-item {
-            flex: 1;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             padding: 20px;
             border-radius: 8px;
             color: white;
             text-align: center;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s;
+        }
+
+        .stat-item:hover {
+            transform: translateY(-2px);
+        }
+
+        .stat-warning {
+            background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
+        }
+
+        .info-card {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            padding: 20px;
+            border-radius: 8px;
+            color: white;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s;
+        }
+
+        .info-card:hover {
+            transform: translateY(-2px);
+        }
+
+        .info-card h3 {
+            margin: 0 0 15px 0;
+            font-size: 20px;
+            color: white;
+            border-bottom: 2px solid rgba(255, 255, 255, 0.3);
+            padding-bottom: 10px;
+        }
+
+        .info-card-header {
+            cursor: pointer;
+            user-select: none;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: opacity 0.3s;
+        }
+
+        .info-card-header:hover {
+            opacity: 0.9;
+        }
+
+        .toggle-icon {
+            font-size: 14px;
+            transition: transform 0.3s;
+        }
+
+        .toggle-icon.rotated {
+            transform: rotate(180deg);
+        }
+
+        .info-box-expanded {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 2px solid rgba(255, 255, 255, 0.3);
+            animation: slideDown 0.3s ease-out;
+        }
+
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .expanded-content h4 {
+            margin: 0 0 15px 0;
+            font-size: 18px;
+            color: white;
+        }
+
+        .info-content {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .info-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .info-item:last-child {
+            border-bottom: none;
+        }
+
+        .info-label {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .info-value {
+            font-size: 16px;
+            font-weight: bold;
         }
 
         .stat-item h3 {
@@ -142,6 +351,10 @@
             font-size: 36px;
             font-weight: bold;
             margin: 0;
+        }
+
+        .table-container {
+            width: 100%;
         }
 
         .table-container h2 {
@@ -198,7 +411,285 @@
             color: #999;
             font-style: italic;
         }
+
+        .warning-badge {
+            background-color: #ff9800;
+            color: white;
+            padding: 5px 12px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 12px;
+        }
+
+        .safe-badge {
+            background-color: #28a745;
+            color: white;
+            padding: 5px 12px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 12px;
+        }
+
+        .confidence-badge {
+            color: white;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 12px;
+            display: inline-block;
+        }
+
+        .clickable-row {
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        .warning-row:hover {
+            background-color: #fff3e0 !important;
+        }
+
+        .warning-row.clickable-row:hover {
+            background-color: #ffe0b2 !important;
+        }
+
+        /* Modal Styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+
+        .modal-content {
+            background-color: #fefefe;
+            margin: 5% auto;
+            padding: 30px;
+            border: none;
+            border-radius: 10px;
+            width: 90%;
+            max-width: 600px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            animation: modalSlideIn 0.3s ease-out;
+        }
+
+        @keyframes modalSlideIn {
+            from {
+                transform: translateY(-50px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #eee;
+        }
+
+        .modal-header h2 {
+            margin: 0;
+            color: #ff9800;
+            font-size: 24px;
+        }
+
+        .close {
+            color: #aaa;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: color 0.3s;
+        }
+
+        .close:hover {
+            color: #000;
+        }
+
+        .detail-section {
+            margin-bottom: 20px;
+        }
+
+        .detail-section h3 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 18px;
+            border-left: 4px solid #ff9800;
+            padding-left: 10px;
+        }
+
+        .detail-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px;
+            margin: 5px 0;
+            background-color: #f9f9f9;
+            border-radius: 5px;
+        }
+
+        .detail-label {
+            font-weight: bold;
+            color: #666;
+        }
+
+        .detail-value {
+            color: #333;
+        }
+
+        .detail-value.positive {
+            color: #dc3545;
+            font-weight: bold;
+        }
+
+        .detail-value.negative {
+            color: #28a745;
+            font-weight: bold;
+        }
+
+        .detail-value.warning {
+            color: #ff9800;
+            font-weight: bold;
+        }
+
+        .detail-value.safe {
+            color: #28a745;
+            font-weight: bold;
+        }
     </style>
+
+    <!-- Warning Details Modal -->
+    <div id="warningModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>⚠️ Warning Details</h2>
+                <span class="close" onclick="closeModal()">&times;</span>
+            </div>
+            <div id="warningDetails">
+                <!-- Details will be inserted here -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function toggleInfoBox() {
+            const expandedBox = document.getElementById('expandedBox');
+            const toggleIcon = document.getElementById('toggleIcon');
+            
+            if (expandedBox.style.display === 'none') {
+                expandedBox.style.display = 'block';
+                toggleIcon.classList.add('rotated');
+            } else {
+                expandedBox.style.display = 'none';
+                toggleIcon.classList.remove('rotated');
+            }
+        }
+
+        function showWarningDetails(row) {
+            const modal = document.getElementById('warningModal');
+            const detailsDiv = document.getElementById('warningDetails');
+            
+            const id = row.getAttribute('data-result-id');
+            const ns1 = parseInt(row.getAttribute('data-ns1')) === 1;
+            const igm = parseInt(row.getAttribute('data-igm')) === 1;
+            const igg = parseInt(row.getAttribute('data-igg')) === 1;
+            const date = row.getAttribute('data-date');
+            const hasWarning = parseInt(row.getAttribute('data-warning')) === 1;
+            const confidence = parseFloat(row.getAttribute('data-confidence'));
+            
+            const ns1Text = ns1 ? 'Positive' : 'Negative';
+            const igmText = igm ? 'Positive' : 'Negative';
+            const iggText = igg ? 'Positive' : 'Negative';
+            const warningText = hasWarning ? 'Warning Detected' : 'Safe';
+            
+            detailsDiv.innerHTML = `
+                <div class="detail-section">
+                    <h3>Record Information</h3>
+                    <div class="detail-item">
+                        <span class="detail-label">Record ID:</span>
+                        <span class="detail-value">#${id}</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Analysis Date:</span>
+                        <span class="detail-value">${date}</span>
+                    </div>
+                </div>
+
+                <div class="detail-section">
+                    <h3>Test Results</h3>
+                    <div class="detail-item">
+                        <span class="detail-label">NS1 Test:</span>
+                        <span class="detail-value ${ns1 ? 'positive' : 'negative'}">${ns1Text}</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">IgM Test:</span>
+                        <span class="detail-value ${igm ? 'positive' : 'negative'}">${igmText}</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">IgG Test:</span>
+                        <span class="detail-value ${igg ? 'positive' : 'negative'}">${iggText}</span>
+                    </div>
+                </div>
+
+                <div class="detail-section">
+                    <h3>Model Prediction (Warnings_model.pkl)</h3>
+                    <div class="detail-item">
+                        <span class="detail-label">Prediction:</span>
+                        <span class="detail-value ${hasWarning ? 'warning' : 'safe'}">${warningText}</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">Confidence Score:</span>
+                        <span class="detail-value">${(confidence * 100).toFixed(2)}%</span>
+                    </div>
+                </div>
+
+                <div class="detail-section">
+                    <h3>Analysis</h3>
+                    <div class="detail-item" style="flex-direction: column; align-items: flex-start;">
+                        <span class="detail-label" style="margin-bottom: 10px;">Interpretation:</span>
+                        <span class="detail-value">
+                            ${hasWarning ? 
+                                '⚠️ This case has been flagged as a WARNING by the machine learning model. ' +
+                                'One or more test results are positive, indicating potential dengue infection. ' +
+                                'Please consult with a healthcare professional for further evaluation.' :
+                                '✓ This case has been classified as SAFE by the machine learning model. ' +
+                                'All test results are negative, indicating no signs of dengue infection.'
+                            }
+                        </span>
+                    </div>
+                </div>
+            `;
+            
+            modal.style.display = 'block';
+        }
+
+        function closeModal() {
+            document.getElementById('warningModal').style.display = 'none';
+        }
+
+        // Close modal when clicking outside of it
+        window.onclick = function(event) {
+            const modal = document.getElementById('warningModal');
+            if (event.target == modal) {
+                closeModal();
+            }
+        }
+
+        // Close modal with Escape key
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') {
+                closeModal();
+            }
+        });
+    </script>
 </body>
 </html>
 

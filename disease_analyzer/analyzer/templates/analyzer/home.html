@@ -217,7 +217,7 @@
             // Add overall interpretation
             const positiveCount = ns1 + igg + igm;
             if (positiveCount >= 2) {
-                analysis.push("<strong>সামগ্রিক ফলাফল:</strong> আপনার ডেঙ্গু পজিটিভ। অনুগ্রহ করে দ্রুত চিকিৎসকের পরামর্শ নিন।");
+                analysis.push("<strong>সামগ্রিক ফলাফল:</strong> আপনার ডেঙ্গু পজিটিভ। অনুগ্রহ করে দ্রুত ডেঙ্গু টেস্ট করান এবং রোগ বিশ্লেষক করুন।");
             } else if (positiveCount === 1) {
                 analysis.push("<strong>সামগ্রিক ফলাফল:</strong> সন্দেহজনক। পুনরায় পরীক্ষা করার পরামর্শ দেওয়া হচ্ছে।");
             } else {
@@ -276,14 +276,178 @@
         });
 
         // Signs and Warnings button click handler
-        document.getElementById('signsWarningBtn').addEventListener('click', function() {
-            window.location.href = '/signs-warnings/';
-        });
+        function attachButtonHandlers() {
+            const signsWarningBtn = document.getElementById('signsWarningBtn');
+            const diseaseAnalystBtn = document.getElementById('diseaseAnalystBtn');
+            
+            if (signsWarningBtn) {
+                // Remove existing event listener if any
+                signsWarningBtn.onclick = function() {
+                    window.location.href = '{% url "signs_warnings" %}';
+                };
+            }
+            
+            if (diseaseAnalystBtn) {
+                // Remove existing event listener if any
+                diseaseAnalystBtn.onclick = function() {
+                    window.location.href = '{% url "disease_analyst" %}';
+                };
+            }
+        }
+        
+        // Attach handlers when DOM is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', attachButtonHandlers);
+        } else {
+            // DOM is already ready
+            attachButtonHandlers();
+        }
 
-        // Disease analyst button click handler
-        document.getElementById('diseaseAnalystBtn').addEventListener('click', function() {
-            window.location.href = '/disease-analyst/';
+        // See Warning Button Handler - Analyze symptoms and show report in modal popup
+        function analyzeSymptoms() {
+            // Get all symptom dropdowns from the awareness card
+            const symptomSelects = document.querySelectorAll('.info-card .mini-select');
+            const symptoms = [];
+            
+            symptomSelects.forEach(select => {
+                const value = parseInt(select.value) || 0;
+                symptoms.push(value);
+            });
+            
+            // Calculate warning score (count positive symptoms)
+            const positiveCount = symptoms.filter(s => s > 0).length;
+            const totalSymptoms = symptoms.length;
+            
+            // Calculate risk percentage
+            const riskPercentage = Math.round((positiveCount / totalSymptoms) * 100);
+            
+            // Determine risk level
+            let riskText = 'নিম্ন';
+            let riskColor = '#28a745';
+            let recommendations = [];
+            
+            if (positiveCount >= 8) {
+                riskText = 'অত্যন্ত উচ্চ';
+                riskColor = '#dc3545';
+                recommendations = [
+                    'আপনার সাথে সাথে চিকিৎসকের পরামর্শ নিন',
+                    'জরুরি বিভাগে যান',
+                    'ডেঙ্গু পরীক্ষা করুন',
+                    'পর্যাপ্ত পানি পান করুন',
+                    'কোনো বিলম্ব করবেন না'
+                ];
+            } else if (positiveCount >= 5) {
+                riskText = 'উচ্চ';
+                riskColor = '#ff9800';
+                recommendations = [
+                    'দ্রুত চিকিৎসকের পরামর্শ নিন',
+                    'ডেঙ্গু পরীক্ষা করুন',
+                    'পর্যাপ্ত বিশ্রাম নিন',
+                    'পর্যাপ্ত তরল পান করুন',
+                    'জ্বর কমানোর জন্য প্যারাসিটামল নিন'
+                ];
+            } else if (positiveCount >= 3) {
+                riskText = 'মাঝারি';
+                riskColor = '#ffc107';
+                recommendations = [
+                    'চিকিৎসকের পরামর্শ নিন',
+                    'পর্যাপ্ত বিশ্রাম নিন',
+                    'পর্যাপ্ত পানি পান করুন',
+                    'লক্ষণগুলো পর্যবেক্ষণ করুন'
+                ];
+            } else {
+                recommendations = [
+                    'লক্ষণগুলো পর্যবেক্ষণ করুন',
+                    'পর্যাপ্ত বিশ্রাম নিন',
+                    'পর্যাপ্ত পানি পান করুন',
+                    'লক্ষণ বাড়লে চিকিৎসকের পরামর্শ নিন'
+                ];
+            }
+            
+            // Show report in modal popup
+            showWarningReportModal({
+                positiveCount: positiveCount,
+                totalSymptoms: totalSymptoms,
+                riskPercentage: riskPercentage,
+                riskText: riskText,
+                riskColor: riskColor,
+                recommendations: recommendations
+            });
+        }
+        
+        function showWarningReportModal(data) {
+            const modal = document.getElementById('warningReportModal');
+            const modalBody = document.getElementById('warningModalBody');
+            
+            if (!modal || !modalBody) {
+                return;
+            }
+            
+            // Populate modal content
+            modalBody.innerHTML = `
+                <div class="risk-summary-card" style="border-top: 5px solid ${data.riskColor};">
+                    <div class="risk-header">ঝুঁকির মাত্রা</div>
+                    <div class="risk-level-text" style="color: ${data.riskColor};">
+                        ${data.riskText}
+                    </div>
+                    <div class="risk-percentage" style="color: ${data.riskColor};">
+                        ${data.riskPercentage}%
+                    </div>
+                    <div class="symptom-count-text">
+                        ${data.positiveCount} / ${data.totalSymptoms} টি লক্ষণ পাওয়া গেছে
+                    </div>
+                </div>
+                
+                <div class="recommendations-box">
+                    <h3 class="recommendations-title">পরামর্শসমূহ</h3>
+                    <div class="recommendations-list">
+                        ${data.recommendations.map(rec => 
+                            `<div class="recommendation-item-card">${rec}</div>`
+                        ).join('')}
+                    </div>
+                </div>
+            `;
+            
+            // Show modal
+            modal.style.display = 'block';
+        }
+        
+        function closeWarningModal() {
+            const modal = document.getElementById('warningReportModal');
+            if (modal) {
+                modal.style.display = 'none';
+            }
+        }
+        
+        // Close modal when clicking outside
+        window.addEventListener('click', function(event) {
+            const modal = document.getElementById('warningReportModal');
+            if (event.target === modal) {
+                closeWarningModal();
+            }
         });
+        
+        // Close modal with Escape key
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') {
+                closeWarningModal();
+            }
+        });
+        
+        // Attach event listener to See Warning button
+        function attachWarningButtonHandler() {
+            const seeWarningBtn = document.getElementById('seeWarningBtn');
+            if (seeWarningBtn) {
+                seeWarningBtn.onclick = analyzeSymptoms;
+            }
+        }
+        
+        // Initialize warning button handler
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', attachWarningButtonHandler);
+        } else {
+            attachWarningButtonHandler();
+        }
     </script>
 
     <style>
