@@ -227,3 +227,80 @@ def delete_all_disease_data(request):
         'success': False,
         'error': 'Invalid request method'
     })
+
+def save_signs_warnings_data(request):
+    """Export all signs and warnings analysis data to CSV"""
+    # Get all analysis results from database
+    results = AnalysisResult.objects.all().order_by('-created_at')
+    
+    # Create HTTP response with CSV content type
+    response = HttpResponse(content_type='text/csv; charset=utf-8')
+    response['Content-Disposition'] = 'attachment; filename="signs_warnings_data_{}.csv"'.format(
+        datetime.now().strftime('%Y%m%d_%H%M%S')
+    )
+    
+    # Create CSV writer
+    writer = csv.writer(response)
+    
+    # Write header row
+    writer.writerow(['ID', 'Name', 'Gender', 'Age', 'Division', 'Area', 'House Type', 'NS1 Test', 'IgM Test', 'IgG Test', 'Analysis Date', 'Model Prediction', 'Confidence', 'Status'])
+    
+    # Write data rows
+    for result in results:
+        # Get prediction from Warnings_model.pkl
+        has_warning, confidence = predict_warning(
+            ns1=result.ns1,
+            igg=result.igg,
+            igm=result.igm
+        )
+        
+        writer.writerow([
+            result.id,
+            result.name or '-',
+            result.gender or '-',
+            result.age or 0,
+            result.division or '-',
+            result.area or '-',
+            result.house_type or 0,
+            'Positive' if result.ns1 else 'Negative',
+            'Positive' if result.igm else 'Negative',
+            'Positive' if result.igg else 'Negative',
+            result.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+            'Warning' if has_warning else 'Safe',
+            f'{confidence:.2f}',
+            'Warning' if has_warning else 'Safe'
+        ])
+    
+    return response
+
+@csrf_exempt
+def delete_all_signs_warnings_data(request):
+    """
+    Delete all signs and warnings analysis data from database.
+    This function ONLY deletes AnalysisResult records (Signs and Warnings page data).
+    It does NOT affect any other data or pages.
+    """
+    if request.method == 'POST':
+        try:
+            # Get count before deletion
+            count = AnalysisResult.objects.count()
+            
+            # Delete all AnalysisResult records (only Signs and Warnings page data)
+            AnalysisResult.objects.all().delete()
+            
+            return JsonResponse({
+                'success': True,
+                'message': f'Successfully deleted {count} record(s)',
+                'deleted_count': count
+            })
+        except Exception as e:
+            import traceback
+            return JsonResponse({
+                'success': False,
+                'error': str(e) + '\n' + traceback.format_exc()
+            })
+    
+    return JsonResponse({
+        'success': False,
+        'error': 'Invalid request method'
+    })
