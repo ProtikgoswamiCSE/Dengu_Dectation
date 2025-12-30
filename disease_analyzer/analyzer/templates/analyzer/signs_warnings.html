@@ -11,6 +11,18 @@
             <h1>Signs and Warnings</h1>
             <a href="{% url 'home' %}" class="back-btn">← Back to Home</a>
         </div>
+        
+        <!-- Migration Warning Alert -->
+        <div id="migrationAlert" style="display: none; background: #fff3cd; border: 1px solid #ffc107; border-radius: 8px; padding: 15px; margin-bottom: 20px; color: #856404;">
+            <strong>⚠️ Database Migration Required:</strong>
+            <p style="margin: 10px 0 0 0;">Please run migrations to create the database table:</p>
+            <code style="background: #f8f9fa; padding: 5px 10px; border-radius: 4px; display: block; margin-top: 10px;">
+                cd disease_analyzer<br>
+                venv\Scripts\activate<br>
+                python manage.py migrate analyzer
+            </code>
+            <p style="margin: 10px 0 0 0;">Or double-click <strong>run_migrations.bat</strong> in the root directory.</p>
+        </div>
 
         <div class="data-section">
             <!-- Cards Section - Two Columns -->
@@ -132,14 +144,41 @@
                             data-confidence="{{ result.warning_confidence|floatformat:2 }}"
                             onclick="showWarningDetails(this)"{% endif %}>
                             <td>{{ result.id }}</td>
-                            <td class="{% if result.ns1 %}positive{% else %}negative{% endif %}">
-                                {{ result.ns1|yesno:"Positive,Negative" }}
+                            <td class="{% if result.symptom_mild_fever > 0 %}positive{% else %}negative{% endif %}">
+                                {% if result.symptom_mild_fever > 0 %}Yes{% else %}No{% endif %}
                             </td>
-                            <td class="{% if result.igm %}positive{% else %}negative{% endif %}">
-                                {{ result.igm|yesno:"Positive,Negative" }}
+                            <td class="{% if result.symptom_eyelid_pain > 0 %}positive{% else %}negative{% endif %}">
+                                {% if result.symptom_eyelid_pain > 0 %}Yes{% else %}No{% endif %}
                             </td>
-                            <td class="{% if result.igg %}positive{% else %}negative{% endif %}">
-                                {{ result.igg|yesno:"Positive,Negative" }}
+                            <td class="{% if result.symptom_headache > 0 %}positive{% else %}negative{% endif %}">
+                                {% if result.symptom_headache > 0 %}Yes{% else %}No{% endif %}
+                            </td>
+                            <td class="{% if result.symptom_body_aches > 0 %}positive{% else %}negative{% endif %}">
+                                {% if result.symptom_body_aches > 0 %}Yes{% else %}No{% endif %}
+                            </td>
+                            <td class="{% if result.symptom_nausea > 0 %}positive{% else %}negative{% endif %}">
+                                {% if result.symptom_nausea > 0 %}Yes{% else %}No{% endif %}
+                            </td>
+                            <td class="{% if result.symptom_skin_rash > 0 %}positive{% else %}negative{% endif %}">
+                                {% if result.symptom_skin_rash > 0 %}Yes{% else %}No{% endif %}
+                            </td>
+                            <td class="{% if result.symptom_fatigue > 0 %}positive{% else %}negative{% endif %}">
+                                {% if result.symptom_fatigue > 0 %}Yes{% else %}No{% endif %}
+                            </td>
+                            <td class="{% if result.symptom_stomach_pain > 0 %}positive{% else %}negative{% endif %}">
+                                {% if result.symptom_stomach_pain > 0 %}Yes{% else %}No{% endif %}
+                            </td>
+                            <td class="{% if result.symptom_dry_throat > 0 %}positive{% else %}negative{% endif %}">
+                                {% if result.symptom_dry_throat > 0 %}Yes{% else %}No{% endif %}
+                            </td>
+                            <td class="{% if result.symptom_lightheadedness > 0 %}positive{% else %}negative{% endif %}">
+                                {% if result.symptom_lightheadedness > 0 %}Yes{% else %}No{% endif %}
+                            </td>
+                            <td class="{% if result.symptom_chest_pain > 0 %}positive{% else %}negative{% endif %}">
+                                {% if result.symptom_chest_pain > 0 %}Yes{% else %}No{% endif %}
+                            </td>
+                            <td class="{% if result.symptom_bleeding > 0 %}positive{% else %}negative{% endif %}">
+                                {% if result.symptom_bleeding > 0 %}Yes{% else %}No{% endif %}
                             </td>
                             <td>{{ result.created_at|date:"Y-m-d H:i" }}</td>
                             <td class="{% if result.warning_prediction %}warning{% else %}safe{% endif %}">
@@ -160,7 +199,7 @@
                         </tr>
                         {% empty %}
                         <tr>
-                            <td colspan="8" class="no-data">No data available</td>
+                            <td colspan="17" class="no-data">No data available</td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -733,6 +772,21 @@
     </div>
 
     <script>
+        // Check for migration errors on page load
+        window.addEventListener('DOMContentLoaded', function() {
+            // Check if there's a migration error in the console or check table
+            const noDataRow = document.querySelector('.no-data');
+            if (noDataRow && noDataRow.textContent.includes('migration')) {
+                document.getElementById('migrationAlert').style.display = 'block';
+            }
+            
+            // Also check if we got an error from the server
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('migration_error') === 'true') {
+                document.getElementById('migrationAlert').style.display = 'block';
+            }
+        });
+
         // Get CSRF token from cookie
         function getCookie(name) {
             let cookieValue = null;

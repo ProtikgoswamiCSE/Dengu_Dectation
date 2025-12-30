@@ -407,12 +407,24 @@
                         <strong>✅ রিপোর্ট ডাটাবেসে সংরক্ষিত হয়েছে</strong><br>
                         <small>রেকর্ড ID: #${data.recordId || 'N/A'}</small>
                         ${data.warning ? `<br><small style="color: #ff9800;">⚠️ Warning: ${data.warningText} (Confidence: ${data.confidence}%)</small>` : ''}
+                        <br><small style="color: #155724;">⏳ Signs & Warnings পেজে redirect করা হচ্ছে...</small>
                     </div>
                 `;
             } else if (data.error) {
+                const isMigrationError = data.migrationNeeded || data.error.includes('migration') || data.error.includes('table does not exist');
                 saveStatus = `
-                    <div style="background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 5px; padding: 10px; margin-bottom: 15px; color: #721c24;">
-                        <strong>⚠️ সতর্কতা:</strong> ${data.error}
+                    <div style="background: ${isMigrationError ? '#fff3cd' : '#f8d7da'}; border: 1px solid ${isMigrationError ? '#ffc107' : '#f5c6cb'}; border-radius: 5px; padding: 10px; margin-bottom: 15px; color: ${isMigrationError ? '#856404' : '#721c24'};">
+                        <strong>⚠️ ${isMigrationError ? 'Database Migration Required' : 'সতর্কতা'}:</strong><br>
+                        ${isMigrationError ? 
+                            '<p style="margin: 10px 0;">Please run migrations to create the database table:</p>' +
+                            '<code style="background: #f8f9fa; padding: 5px 10px; border-radius: 4px; display: block; margin: 10px 0;">' +
+                            'cd disease_analyzer<br>' +
+                            'venv\\Scripts\\activate<br>' +
+                            'python manage.py migrate analyzer' +
+                            '</code>' +
+                            '<p style="margin: 10px 0 0 0;">Or double-click <strong>run_migrations.bat</strong> in the root directory.</p>' :
+                            data.error
+                        }
                     </div>
                 `;
             }
@@ -490,13 +502,32 @@
         // Analyze symptoms and save to database
         function analyzeAndSaveSymptoms() {
             // Get all symptom dropdowns from the awareness card
-            const symptomSelects = document.querySelectorAll('.info-card .mini-select');
+            // Try multiple selectors to find the symptoms
+            let symptomSelects = document.querySelectorAll('.info-card .mini-select');
+            if (symptomSelects.length === 0) {
+                symptomSelects = document.querySelectorAll('.info-list .mini-select');
+            }
+            if (symptomSelects.length === 0) {
+                symptomSelects = document.querySelectorAll('.mini-select');
+            }
+            
+            console.log('Found symptom selects:', symptomSelects.length);
+            
             const symptoms = [];
             
-            symptomSelects.forEach(select => {
+            symptomSelects.forEach((select, index) => {
                 const value = parseInt(select.value) || 0;
                 symptoms.push(value);
+                console.log(`Symptom ${index + 1}: ${value}`);
             });
+            
+            // Ensure we have exactly 12 symptoms
+            while (symptoms.length < 12) {
+                symptoms.push(0);
+            }
+            symptoms.splice(12); // Keep only first 12
+            
+            console.log('Final symptoms array:', symptoms);
             
             // Calculate warning score (count positive symptoms)
             const positiveCount = symptoms.filter(s => s > 0).length;
@@ -554,10 +585,39 @@
             btn.innerHTML = '⏳ বিশ্লেষণ করা হচ্ছে...';
             btn.disabled = true;
             
-            // Prepare form data
+            // Prepare form data - include symptoms and user info from main form
             const formData = new FormData();
             formData.append('symptoms', JSON.stringify(symptoms));
             formData.append('csrfmiddlewaretoken', getCookie('csrftoken'));
+            
+            // Get user info from main analysis form if available
+            const mainForm = document.getElementById('analysisForm');
+            if (mainForm) {
+                const nameInput = mainForm.querySelector('[name="Name"]');
+                const genderSelect = mainForm.querySelector('[name="gender"]');
+                const ageInput = mainForm.querySelector('[name="age"]');
+                const divisionSelect = mainForm.querySelector('[name="division"]');
+                const areaInput = mainForm.querySelector('[name="Area"]');
+                const houseTypeSelect = mainForm.querySelector('[name="house_type"]');
+                
+                // Append with lowercase keys to match view expectations
+                if (nameInput) formData.append('name', nameInput.value || '');
+                if (genderSelect) formData.append('gender', genderSelect.value || 'Male');
+                if (ageInput) formData.append('age', ageInput.value || '0');
+                if (divisionSelect) formData.append('division', divisionSelect.value || 'Dhaka');
+                if (areaInput) formData.append('area', areaInput.value || '-');
+                if (houseTypeSelect) formData.append('house_type', houseTypeSelect.value || '0');
+            } else {
+                // If form not found, use default values
+                formData.append('name', '');
+                formData.append('gender', 'Male');
+                formData.append('age', '0');
+                formData.append('division', 'Dhaka');
+                formData.append('area', '-');
+                formData.append('house_type', '0');
+            }
+            
+            console.log('Sending symptoms to server:', JSON.stringify(symptoms));
             
             // Send to server to analyze and save
             fetch('{% url "analyze_symptoms_warning" %}', {
@@ -567,12 +627,20 @@
                     'X-Requested-With': 'XMLHttpRequest'
                 }
             })
-            .then(response => response.json())
+            .then(response => {
+                console.log('Response status:', response.status);
+                return response.json();
+            })
             .then(data => {
+                console.log('Response data:', data);
                 btn.innerHTML = originalText;
                 btn.disabled = false;
                 
                 if (data.success) {
+                    // Redirect to signs-warnings page after successful save
+                    setTimeout(() => {
+                        window.location.href = '{% url "signs_warnings" %}';
+                    }, 2000);
                     // Show report in modal with saved status
                     showWarningReportModal({
                         positiveCount: data.results.positive_symptoms,
@@ -588,6 +656,20 @@
                         recordId: data.results.id
                     });
                 } else {
+                    // Check if it's a migration error
+                    const isMigrationError = data.migration_needed || (data.error && (data.error.includes('migration') || data.error.includes('table does not exist')));
+                    
+                    if (isMigrationError) {
+                        alert('⚠️ Database Migration Required!\n\n' + 
+                              'Please run migrations first:\n' +
+                              '1. Double-click "run_migrations.bat" in the root directory\n' +
+                              'OR\n' +
+                              '2. Open terminal and run:\n' +
+                              '   cd disease_analyzer\n' +
+                              '   venv\\Scripts\\activate\n' +
+                              '   python manage.py migrate analyzer');
+                    }
+                    
                     // Show error but still show the modal with analysis
                     showWarningReportModal({
                         positiveCount: positiveCount,
@@ -597,7 +679,8 @@
                         riskColor: riskColor,
                         recommendations: recommendations,
                         saved: false,
-                        error: data.error || 'Database save failed'
+                        error: data.error || 'Database save failed',
+                        migrationNeeded: isMigrationError
                     });
                 }
             })

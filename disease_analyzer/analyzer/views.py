@@ -107,14 +107,22 @@ def signs_warnings(request):
         # Count positive cases
         positive_count = results.filter(ns1=True).count() + results.filter(igm=True).count() + results.filter(igg=True).count()
     except Exception as e:
+        error_msg = str(e).lower()
         # Handle case where table doesn't exist yet (migration not run)
-        # Return empty results
-        results = []
-        total_count = 0
-        warning_count = 0
-        safe_count = 0
-        warning_rate = 0
-        positive_count = 0
+        if 'no such table' in error_msg or 'does not exist' in error_msg or 'relation' in error_msg:
+            # Return empty results with migration message
+            results = []
+            total_count = 0
+            warning_count = 0
+            safe_count = 0
+            warning_rate = 0
+            positive_count = 0
+            # Store error message to show in template
+            import sys
+            sys.stderr.write(f"Migration needed: {str(e)}\n")
+        else:
+            # Re-raise other errors
+            raise
     
     # Prepare data for template
     data = {
@@ -371,9 +379,11 @@ def analyze_warning(request):
 
         except Exception as e:
             import traceback
+            error_details = str(e) + '\n' + traceback.format_exc()
+            print(f"Error in analyze_warning: {error_details}")
             return JsonResponse({
                 'success': False,
-                'error': str(e) + '\n' + traceback.format_exc()
+                'error': error_details
             })
 
     return JsonResponse({
@@ -391,9 +401,21 @@ def analyze_symptoms_warning(request):
             # Get symptoms data (array of 0/1 values)
             symptoms_data = request.POST.get('symptoms', '[]')
             if isinstance(symptoms_data, str):
-                symptoms = json.loads(symptoms_data)
+                try:
+                    symptoms = json.loads(symptoms_data)
+                except:
+                    symptoms = []
             else:
-                symptoms = symptoms_data
+                symptoms = symptoms_data if symptoms_data else []
+            
+            # Ensure symptoms is a list and has exactly 12 items
+            if not isinstance(symptoms, list):
+                symptoms = []
+            
+            # Pad or truncate to exactly 12 symptoms
+            while len(symptoms) < 12:
+                symptoms.append(0)
+            symptoms = symptoms[:12]
             
             # Get optional user info
             name = request.POST.get('name', '')
@@ -405,7 +427,7 @@ def analyze_symptoms_warning(request):
             
             # Count positive symptoms
             positive_symptoms = sum(1 for s in symptoms if int(s) > 0)
-            total_symptoms = len(symptoms)
+            total_symptoms = len(symptoms) if symptoms else 12
             
             # Convert symptoms to test predictions based on symptom count
             # If many symptoms are positive, treat as potential warning
@@ -445,6 +467,11 @@ def analyze_symptoms_warning(request):
             
             # Save to SignsWarning database
             try:
+                # Convert all symptoms to integers, ensure we have exactly 12
+                symptoms_clean = [int(s) if s else 0 for s in symptoms[:12]]
+                while len(symptoms_clean) < 12:
+                    symptoms_clean.append(0)
+                
                 warning_result = SignsWarning.objects.create(
                     name=name or f'Symptom Analysis - {positive_symptoms} symptoms',
                     gender=gender,
@@ -456,7 +483,19 @@ def analyze_symptoms_warning(request):
                     igg=bool(igg),
                     igm=bool(igm),
                     warning_prediction=has_warning,
-                    warning_confidence=final_confidence
+                    warning_confidence=final_confidence,
+                    symptom_mild_fever=symptoms_clean[0],
+                    symptom_eyelid_pain=symptoms_clean[1],
+                    symptom_headache=symptoms_clean[2],
+                    symptom_body_aches=symptoms_clean[3],
+                    symptom_nausea=symptoms_clean[4],
+                    symptom_skin_rash=symptoms_clean[5],
+                    symptom_fatigue=symptoms_clean[6],
+                    symptom_stomach_pain=symptoms_clean[7],
+                    symptom_dry_throat=symptoms_clean[8],
+                    symptom_lightheadedness=symptoms_clean[9],
+                    symptom_chest_pain=symptoms_clean[10],
+                    symptom_bleeding=symptoms_clean[11]
                 )
                 result_id = warning_result.id
             except Exception as db_error:
@@ -492,9 +531,11 @@ def analyze_symptoms_warning(request):
 
         except Exception as e:
             import traceback
+            error_details = str(e) + '\n' + traceback.format_exc()
+            print(f"Error in analyze_symptoms_warning: {error_details}")
             return JsonResponse({
                 'success': False,
-                'error': str(e) + '\n' + traceback.format_exc()
+                'error': error_details
             })
 
     return JsonResponse({
