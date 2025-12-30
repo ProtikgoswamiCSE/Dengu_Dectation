@@ -43,7 +43,7 @@
                         <p class="stat-number">{{ warning_count }}</p>
                     </div>
                     <div class="info-card">
-                        <h3 class="info-card-header" onclick="toggleInfoBox()">
+                        <h3 class="info-card-header" id="infoCardHeader">
                             📊 Quick Info
                             <span class="toggle-icon" id="toggleIcon">▼</span>
                         </h3>
@@ -772,7 +772,20 @@
     </div>
 
     <script>
-        // Check for migration errors on page load
+        // Track mouse state to prevent accidental toggles during scroll
+        let isScrolling = false;
+        let scrollTimeout;
+        
+        // Detect scroll events
+        window.addEventListener('wheel', function() {
+            isScrolling = true;
+            clearTimeout(scrollTimeout);
+            scrollTimeout = setTimeout(function() {
+                isScrolling = false;
+            }, 150);
+        }, { passive: true });
+        
+        // Check for migration errors on page load and setup info card toggle
         window.addEventListener('DOMContentLoaded', function() {
             // Check if there's a migration error in the console or check table
             const noDataRow = document.querySelector('.no-data');
@@ -784,6 +797,30 @@
             const urlParams = new URLSearchParams(window.location.search);
             if (urlParams.get('migration_error') === 'true') {
                 document.getElementById('migrationAlert').style.display = 'block';
+            }
+            
+            // Setup info card header click handler (prevents accidental toggles during scroll)
+            const infoCardHeader = document.getElementById('infoCardHeader');
+            if (infoCardHeader) {
+                let mouseDownTime = 0;
+                let mouseDownX = 0;
+                let mouseDownY = 0;
+                
+                infoCardHeader.addEventListener('mousedown', function(e) {
+                    mouseDownTime = Date.now();
+                    mouseDownX = e.clientX;
+                    mouseDownY = e.clientY;
+                });
+                
+                infoCardHeader.addEventListener('click', function(e) {
+                    // Only toggle if it was a quick click (not a drag) and not during scroll
+                    const clickDuration = Date.now() - mouseDownTime;
+                    const moveDistance = Math.abs(e.clientX - mouseDownX) + Math.abs(e.clientY - mouseDownY);
+                    
+                    if (clickDuration < 300 && moveDistance < 5 && !isScrolling) {
+                        toggleInfoBox(e);
+                    }
+                });
             }
         });
 
@@ -803,7 +840,17 @@
             return cookieValue;
         }
 
-        function toggleInfoBox() {
+        function toggleInfoBox(event) {
+            // Prevent toggle if user is scrolling
+            if (isScrolling) {
+                return;
+            }
+            
+            // Only toggle on explicit click, not during scroll
+            if (event && event.type === 'wheel') {
+                return;
+            }
+            
             const expandedBox = document.getElementById('expandedBox');
             const toggleIcon = document.getElementById('toggleIcon');
             

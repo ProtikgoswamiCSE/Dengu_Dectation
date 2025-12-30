@@ -407,7 +407,6 @@
                         <strong>✅ রিপোর্ট ডাটাবেসে সংরক্ষিত হয়েছে</strong><br>
                         <small>রেকর্ড ID: #${data.recordId || 'N/A'}</small>
                         ${data.warning ? `<br><small style="color: #ff9800;">⚠️ Warning: ${data.warningText} (Confidence: ${data.confidence}%)</small>` : ''}
-                        <br><small style="color: #155724;">⏳ Signs & Warnings পেজে redirect করা হচ্ছে...</small>
                     </div>
                 `;
             } else if (data.error) {
@@ -452,13 +451,6 @@
                             `<div class="recommendation-item-card">${rec}</div>`
                         ).join('')}
                     </div>
-                </div>
-                
-                <div style="margin-top: 20px; text-align: center;">
-                    <button onclick="window.location.href='{% url 'signs_warnings' %}'; closeWarningModal();" 
-                            style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 12px 24px; border-radius: 6px; font-size: 16px; font-weight: 600; cursor: pointer;">
-                        📊 Signs & Warnings পেজে যান
-                    </button>
                 </div>
             `;
             
@@ -637,11 +629,7 @@
                 btn.disabled = false;
                 
                 if (data.success) {
-                    // Redirect to signs-warnings page after successful save
-                    setTimeout(() => {
-                        window.location.href = '{% url "signs_warnings" %}';
-                    }, 2000);
-                    // Show report in modal with saved status
+                    // Show report in modal with saved status (no auto redirect)
                     showWarningReportModal({
                         positiveCount: data.results.positive_symptoms,
                         totalSymptoms: data.results.total_symptoms,
